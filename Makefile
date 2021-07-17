@@ -2,6 +2,7 @@ VERSION ?= $(shell node -p 'require("./package.json").version')
 FLOW_VERSION := $(patsubst v%,%,$(VERSION))
 FLOW_BINS = \
 	flow-linux64-v$(FLOW_VERSION)/flow \
+	flow-linux-arm64-v$(FLOW_VERSION)/flow \
 	flow-osx-v$(FLOW_VERSION)/flow \
 	flow-win64-v$(FLOW_VERSION)/flow.exe
 
@@ -11,7 +12,7 @@ all: clean build test
 .PHONY: clean
 clean:
 	rm -f .npmrc
-	rm -rf flow-*-v* SHASUM256.txt
+	rm -rf flow-*-v* SHASUM256.txt SHASUM256.txt.sign signing.key signing.pem
 
 .PHONY: bump
 bump:
@@ -27,11 +28,15 @@ test: $(FLOW_BINS)
 build: clean bump SHASUM256.txt
 
 .PHONY: push
-push: build test
+push: build test SHASUM256.txt.sign signing.pem
 	git diff --quiet && git diff --staged --quiet || git commit -am "v$(FLOW_VERSION)"
 	git tag -l "v$(FLOW_VERSION)" || git tag -a "v$(FLOW_VERSION)" -m "v$(FLOW_VERSION)"
 	git push
 	git push --tags
+
+.PHONY: pack
+pack: build SHASUM256.txt.sign
+	npm pack
 
 .PHONY: publish
 publish:
@@ -55,8 +60,50 @@ get-flow = \
 flow-linux64-v%/flow:
 	$(get-flow)
 
+flow-linux-arm64-v%/flow:
+	$(get-flow)
+
 flow-osx-v%/flow:
 	$(get-flow)
 
 flow-win64-v%/flow.exe:
 	$(get-flow)
+
+
+#################################
+# Code signing
+#
+# The binaries' hashes are stored in SHASUM256.txt. To ensure integrity of
+# SHASUM256.txt, we also provide SHASUM256.txt.sign, which is signed with our
+# (self-signed) SSL certificate, signing.pem.
+#
+# The base64 encoding of the private key must be passed as an environment
+# variable named "FLOW_BIN_PRIVATE_KEY_BASE64".
+#
+#################################
+
+# base64 decodes the private key and writes it into a file named signing.key
+signing.key:
+ifeq ("$(FLOW_BIN_PRIVATE_KEY_BASE64)", "")
+	@echo "FLOW_BIN_PRIVATE_KEY_BASE64 variable not set."
+	exit 1
+else
+	@echo '$(FLOW_BIN_PRIVATE_KEY_BASE64)' | base64 -d > $@
+endif
+
+# generates the public key from signing.key
+#
+# this cert also needs to be included in flow-for-vscode or anywhere else that
+# wants to verify our release binaries offline.
+signing.pem: signing.key
+	openssl rsa -in "$<" -pubout -out "$@"
+
+%.sign: % signing.key 
+	openssl dgst -sign signing.key -sha256 -out "$@.bin" -binary "$<"
+	openssl base64 -in "$@.bin" -out "$@"
+	rm -f "$@.bin"
+
+verify: SHASUM256.txt signing.pem SHASUM256.txt.sign
+	openssl base64 -d -in SHASUM256.txt.sign -out SHASUM256.txt.sign.bin
+	openssl dgst -verify signing.pem -sha256 -signature SHASUM256.txt.sign.bin SHASUM256.txt
+	rm -f "SHASUM256.txt.sign.bin"

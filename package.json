@@ -1,6 +1,6 @@
 {
   "name": "flow-bin",
-  "version": "0.133.0",
+  "version": "0.155.1",
   "description": "Binary wrapper for Flow - A static type checker for JavaScript",
   "license": "MIT",
   "repository": "flowtype/flow-bin",
@@ -21,12 +21,15 @@
   },
   "files": [
     "flow-linux64-v*/flow",
+    "flow-linux-arm64-v*/flow",
     "flow-osx-v*/flow",
     "flow-win64-v*/flow.exe",
     "vendor",
     "cli.js",
     "index.js",
-    "SHASUM256.txt"
+    "SHASUM256.txt",
+    "SHASUM256.txt.sign",
+    "signing.pem"
   ],
   "keywords": [
     "cli-app",
